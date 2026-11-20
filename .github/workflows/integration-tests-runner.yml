@@ -1,0 +1,59 @@
+name: Integration Test Runner
+
+on:
+  workflow_call:
+    inputs:
+      test_type:
+        description: 'Type of tests to run: integration or 2pc'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # Holds pull request runs until a required reviewer of the `integration_tests` environment
+  # approves them, on a small runner so no 32gb-runner sits idle while waiting. An empty
+  # environment name means no environment, so these runs start straight away:
+  # - pushes to master;
+  # - staging -> master pull requests from this repository (a fork's `staging` branch is still gated).
+  approve:
+    name: Approve ${{ inputs.test_type == '2pc' && '2PC Integration Tests' || 'Integration Tests' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: ${{ github.event_name == 'pull_request' && !(github.head_ref == 'staging' && github.base_ref == 'master' && github.event.pull_request.head.repo.full_name == github.repository) && 'integration_tests' || '' }}
+    outputs:
+      attempt: ${{ github.run_attempt }}
+    steps:
+      - run: echo "Approved -- running the integration tests"
+
+  run-tests:
+    name: ${{ inputs.test_type == '2pc' && '2PC Integration Tests' || 'Integration Tests' }}
+    needs: approve
+    # "Re-run failed jobs" does not re-run `approve`, so its attempt no longer matches and the
+    # gate applies again here. "Re-run all jobs" is gated by `approve` itself.
+    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master' && github.event.pull_request.head.repo.full_name == github.repository) && 'integration_tests' || '' }}
+    runs-on: ubuntu-latest # TEST ONLY: real workflow uses 32gb-runner
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The test containers mount parts of the checkout; keep the token out of .git/config.
+          persist-credentials: false
+
+      # TEST ONLY: stands in for the real test steps.
+      - name: Check token is not in .git/config
+        run: |
+          if git config --get-regexp '^http\..*\.extraheader$'; then
+            echo "token persisted in .git/config"; exit 1
+          fi
+          echo "no token in .git/config"
+
+      - name: Fake tests
+        env:
+          TEST_TYPE: ${{ inputs.test_type }}
+        run: |
+          echo "running fake $TEST_TYPE tests"
+          # Commit a file named FAIL to make this job fail, to test "Re-run failed jobs".
+          if [ -f FAIL ]; then echo "FAIL file present"; exit 1; fi
