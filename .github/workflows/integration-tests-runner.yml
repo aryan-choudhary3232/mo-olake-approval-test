@@ -12,27 +12,14 @@ permissions:
   contents: read
 
 jobs:
-  # Holds pull request runs until a required reviewer of the `integration_tests` environment
-  # approves them, on a small runner so no 32gb-runner sits idle while waiting. An empty
-  # environment name means no environment, so these runs start straight away:
-  # - pushes to master;
-  # - staging -> master pull requests from this repository (a fork's `staging` branch is still gated).
-  approve:
-    name: Approve ${{ inputs.test_type == '2pc' && '2PC Integration Tests' || 'Integration Tests' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: ${{ github.event_name == 'pull_request' && !(github.head_ref == 'staging' && github.base_ref == 'master' && github.event.pull_request.head.repo.full_name == github.repository) && 'integration_tests' || '' }}
-    outputs:
-      attempt: ${{ github.run_attempt }}
-    steps:
-      - run: echo "Approved -- running the integration tests"
-
   run-tests:
     name: ${{ inputs.test_type == '2pc' && '2PC Integration Tests' || 'Integration Tests' }}
-    needs: approve
-    # "Re-run failed jobs" does not re-run `approve`, so its attempt no longer matches and the
-    # gate applies again here. "Re-run all jobs" is gated by `approve` itself.
-    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master' && github.event.pull_request.head.repo.full_name == github.repository) && 'integration_tests' || '' }}
+    # Pull request runs wait for a required reviewer of the `integration_tests` environment.
+    # A waiting job holds no runner, and every re-run asks for approval again. An empty
+    # environment name means no environment, so these runs start straight away:
+    # - pushes to master;
+    # - staging -> master pull requests from this repository (a fork's `staging` branch is still gated).
+    environment: ${{ github.event_name == 'pull_request' && !(github.head_ref == 'staging' && github.base_ref == 'master' && github.event.pull_request.head.repo.full_name == github.repository) && 'integration_tests' || '' }}
     runs-on: ubuntu-latest # TEST ONLY: real workflow uses 32gb-runner
     timeout-minutes: 10
     steps:
